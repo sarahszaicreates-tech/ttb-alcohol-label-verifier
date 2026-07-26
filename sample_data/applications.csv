@@ -1,0 +1,10 @@
+sample_label,brand_name,class_type,abv,net_contents_ml,expected_outcome
+01_perfect_match.png,Vesper Reserve,Vodka,40,750,Match
+02_wrong_abv.png,Vesper Reserve,Vodka,40,750,Mismatch
+03_wrong_proof.png,Vesper Reserve,Vodka,40,750,Mismatch
+04_missing_warning.png,Vesper Reserve,Vodka,40,750,Mismatch
+05_wrong_net_contents.png,Vesper Reserve,Vodka,40,750,Mismatch
+06_rotated_label.png,Vesper Reserve,Vodka,40,750,Match
+07_class_mismatch.png,Vesper Reserve,Vodka,40,750,Mismatch
+08_low_contrast.png,Vesper Reserve,Vodka,40,750,Possible Match
+
