@@ -47,6 +47,7 @@ def extract_regulated_values(text: str) -> dict[str, float | bool | None]:
     required = compact_warning(GOVERNMENT_WARNING)
     observed = compact_warning(text)
     warning_exact = required in observed
+    warning_capitalization_exact = GOVERNMENT_WARNING in text
     if warning_exact:
         warning_score = 1.0
     if not warning_exact:
@@ -58,6 +59,7 @@ def extract_regulated_values(text: str) -> dict[str, float | bool | None]:
         "proof": proof,
         "net_contents_ml": ml,
         "government_warning_exact": warning_exact,
+        "government_warning_capitalization_exact": warning_capitalization_exact,
         "government_warning_score": warning_score,
     }
 
@@ -151,10 +153,24 @@ def compare_net_contents(expected_ml: int, found: float | None) -> CheckResult:
 
 def compare_warning(extracted: dict[str, float | bool | None]) -> CheckResult:
     score = float(extracted["government_warning_score"] or 0)
-    if extracted["government_warning_exact"]:
+    if (
+        extracted["government_warning_exact"]
+        and extracted["government_warning_capitalization_exact"]
+    ):
         return CheckResult(
             "Government warning", "Exact statutory wording", "Complete wording detected",
-            Status.MATCH, "All required warning words were found in order.", score
+            Status.MATCH,
+            "Required warning wording and capitalization were found exactly.",
+            score,
+        )
+    if extracted["government_warning_exact"]:
+        return CheckResult(
+            "Government warning",
+            "Exact statutory wording and capitalization",
+            "Wording detected with capitalization or formatting variance",
+            Status.POSSIBLE_MATCH,
+            "The wording is present, but capitalization or formatting requires visual review.",
+            score,
         )
     if score >= 0.90:
         return CheckResult(

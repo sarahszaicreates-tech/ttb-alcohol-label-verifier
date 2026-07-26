@@ -29,7 +29,10 @@ class VerificationTests(unittest.TestCase):
         self.assertTrue(all(c.status == Status.MATCH for c in report.checks))
 
     def test_capitalization_and_punctuation_are_normalized(self):
-        text = GOOD_TEXT.lower().replace("vesper reserve", "VESPER, RESERVE!")
+        text = (
+            GOOD_TEXT.replace("VESPER RESERVE", "Vesper, Reserve!")
+            .replace("\nVODKA\n", "\nvodka\n")
+        )
         report = verify_label_text(text, self.expected)
         self.assertEqual(report.overall_status, Status.MATCH)
 
@@ -60,6 +63,14 @@ class VerificationTests(unittest.TestCase):
         report = verify_label_text(GOOD_TEXT.replace(GOVERNMENT_WARNING, ""), self.expected)
         check = next(c for c in report.checks if c.field == "Government warning")
         self.assertEqual(check.status, Status.MISMATCH)
+
+    def test_warning_capitalization_variance_requires_review(self):
+        report = verify_label_text(
+            GOOD_TEXT.replace("GOVERNMENT WARNING:", "Government Warning:"),
+            self.expected,
+        )
+        check = next(c for c in report.checks if c.field == "Government warning")
+        self.assertEqual(check.status, Status.POSSIBLE_MATCH)
 
     def test_current_standard_fills_include_2026_sizes(self):
         for size in (1800, 945, 720, 710, 570, 475, 355, 331):
