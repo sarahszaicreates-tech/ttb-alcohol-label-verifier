@@ -101,6 +101,8 @@ python -m unittest discover -s tests -v
 
 ## Public deployment
 
+Live prototype: [ttb-alcohol-label-verifier.streamlit.app](https://ttb-alcohol-label-verifier.streamlit.app/)
+
 The repository is ready for Streamlit Community Cloud: select `app.py` as the
 entry point and Python 3.11. `requirements.txt` contains the runtime
 dependencies. A `Procfile` is also included for platforms that launch web
