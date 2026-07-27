@@ -27,6 +27,23 @@ NET_ML_RE = re.compile(r"(?P<value>\d{1,4}(?:[.,]\d+)?)\s*m\s*l\b", re.I)
 NET_L_RE = re.compile(r"(?P<value>\d(?:[.,]\d{1,3})?)\s*l(?:iter|itre)?s?\b", re.I)
 
 
+def _warning_tokens_with_case(value: str) -> str:
+    """Normalize layout and punctuation while preserving warning capitalization."""
+    return " ".join(re.findall(r"[A-Za-z0-9]+", value or ""))
+
+
+def _tokens_appear_in_order(expected: str, observed: str) -> bool:
+    """Allow unrelated OCR column text between required warning words."""
+    cursor = 0
+    compact_observed = observed.replace(" ", "")
+    for token in expected.split():
+        position = compact_observed.find(token, cursor)
+        if position < 0:
+            return False
+        cursor = position + len(token)
+    return True
+
+
 def _find_number(pattern: re.Pattern[str], text: str) -> float | None:
     match = pattern.search(text)
     return float(match.group("value").replace(",", ".")) if match else None
@@ -37,6 +54,24 @@ def extract_regulated_values(text: str) -> dict[str, float | bool | None]:
     proof = _find_number(PROOF_RE, text)
     ml = _find_number(NET_ML_RE, text)
     liters = _find_number(NET_L_RE, text)
+    if abv is None and re.search(
+        r"(?:alcohol|alc\.?)\s*(?:/|\s+by\s+)?\s*(?:volume|vol\.?)", text, re.I
+    ):
+        percent = re.search(r"(\d{1,3}(?:[.,]\d+)?)\s*%", text)
+        if percent:
+            abv = float(percent.group(1).replace(",", "."))
+    if proof is None:
+        proof_anchor = re.search(r"\bproof\b", text, re.I)
+        if proof_anchor:
+            preceding = re.findall(r"(?<![%\d])(\d{1,3}(?:[.,]\d+)?)(?!\s*%)", text[:proof_anchor.start()])
+            candidates = [float(value.replace(",", ".")) for value in preceding]
+            proof = next((value for value in reversed(candidates) if value <= 200), None)
+    if ml is None:
+        ml_anchor = re.search(r"\bm\s*l\b", text, re.I)
+        if ml_anchor:
+            preceding = re.findall(r"(?<!\d)(\d{1,4}(?:[.,]\d+)?)(?!\s*%)", text[:ml_anchor.start()])
+            candidates = [float(value.replace(",", ".")) for value in preceding]
+            ml = next((value for value in reversed(candidates) if value <= 4000), None)
     if ml is None and liters is not None:
         ml = liters * 1000
     warning_score = similarity(
@@ -110,23 +145,33 @@ def compare_abv(expected: float, found: float | None) -> CheckResult:
     )
 
 
-def compare_proof(abv: float | None, proof: float | None) -> CheckResult:
-    if proof is None:
+def compare_proof(expected: float | None, label_abv: float | None, found: float | None) -> CheckResult:
+    if expected is None and found is None:
         return CheckResult(
-            "Proof (optional)", "If shown: 2 × stated ABV", "Not shown",
-            Status.MATCH, "Proof is optional; no proof statement requires comparison."
+            "Proof (optional)", "Not expected", "Not shown",
+            Status.MATCH, "Proof is optional and was not expected or shown."
         )
-    if abv is None:
+    if expected is None:
         return CheckResult(
-            "Proof (optional)", "2 × stated ABV", f"{proof:g} proof",
-            Status.UNABLE, "Proof was found, but the mandatory ABV statement was not."
+            "Proof (optional)", "Not expected", f"{found:g} proof",
+            Status.POSSIBLE_MATCH,
+            "Proof is optional, but the label shows a value that was not entered."
         )
-    expected_proof = abv * 2
-    status = Status.MATCH if abs(expected_proof - proof) <= 0.1 else Status.MISMATCH
+    if found is None:
+        return CheckResult(
+            "Proof (optional)", f"{expected:g} proof", "Not shown",
+            Status.UNABLE, "A proof value was expected, but no proof statement was detected."
+        )
+    status = Status.MATCH if abs(expected - found) <= 0.1 else Status.MISMATCH
+    consistency_note = ""
+    if label_abv is not None and abs(found - (label_abv * 2)) > 0.1:
+        status = Status.MISMATCH
+        consistency_note = " It also does not equal twice the label's stated ABV."
     return CheckResult(
-        "Proof (optional)", f"{expected_proof:g} proof", f"{proof:g} proof", status,
-        "Proof is consistent with stated ABV." if status == Status.MATCH else
-        "Proof must equal twice the stated alcohol-by-volume percentage."
+        "Proof (optional)", f"{expected:g} proof", f"{found:g} proof", status,
+        "The proof matches the entered application value and stated ABV."
+        if status == Status.MATCH else
+        "The label proof differs from the entered application value." + consistency_note
     )
 
 
@@ -151,22 +196,35 @@ def compare_net_contents(expected_ml: int, found: float | None) -> CheckResult:
     )
 
 
-def compare_warning(extracted: dict[str, float | bool | None]) -> CheckResult:
-    score = float(extracted["government_warning_score"] or 0)
-    if (
-        extracted["government_warning_exact"]
-        and extracted["government_warning_capitalization_exact"]
-    ):
+def compare_warning(expected: str, text: str) -> CheckResult:
+    expected = expected.strip()
+    if not expected:
         return CheckResult(
-            "Government warning", "Exact statutory wording", "Complete wording detected",
+            "Government warning", "No expectation entered", "Not evaluated",
+            Status.UNABLE, "Enter the expected government warning wording before verification."
+        )
+    normalized_expected = compact_warning(expected)
+    normalized_text = compact_warning(text)
+    case_sensitive_expected = _warning_tokens_with_case(expected)
+    case_sensitive_text = _warning_tokens_with_case(text)
+    expected_words = normalized_expected.split()
+    observed_words = set(normalized_text.split())
+    score = (
+        sum(1 for word in expected_words if word in observed_words) / len(expected_words)
+        if expected_words else 0.0
+    )
+    if _tokens_appear_in_order(case_sensitive_expected, case_sensitive_text):
+        return CheckResult(
+            "Government warning", "Entered wording and capitalization",
+            "Complete wording detected",
             Status.MATCH,
-            "Required warning wording and capitalization were found exactly.",
+            "The entered warning wording and capitalization were found exactly.",
             score,
         )
-    if extracted["government_warning_exact"]:
+    if _tokens_appear_in_order(normalized_expected, normalized_text):
         return CheckResult(
             "Government warning",
-            "Exact statutory wording and capitalization",
+            "Entered wording and capitalization",
             "Wording detected with capitalization or formatting variance",
             Status.POSSIBLE_MATCH,
             "The wording is present, but capitalization or formatting requires visual review.",
@@ -174,13 +232,14 @@ def compare_warning(extracted: dict[str, float | bool | None]) -> CheckResult:
         )
     if score >= 0.90:
         return CheckResult(
-            "Government warning", "Exact statutory wording", "Possible OCR variance",
+            "Government warning", "Entered wording and capitalization", "Possible OCR variance",
             Status.POSSIBLE_MATCH,
             "Most warning words were found, but exact wording needs visual review.", score
         )
     return CheckResult(
-        "Government warning", "Exact statutory wording", "Missing or materially incomplete",
-        Status.MISMATCH, "The complete statutory warning was not detected.", score
+        "Government warning", "Entered wording and capitalization",
+        "Missing or materially incomplete", Status.MISMATCH,
+        "The entered warning wording was not detected.", score
     )
 
 
@@ -192,6 +251,12 @@ def validate_expected(expected: ExpectedLabel) -> list[str]:
         errors.append("Class/type is required.")
     if not 0.5 <= expected.abv <= 100:
         errors.append("ABV must be between 0.5 and 100 for this prototype.")
+    if expected.proof is not None and not 1 <= expected.proof <= 200:
+        errors.append("Proof must be between 1 and 200.")
+    if expected.proof is not None and abs(expected.proof - (expected.abv * 2)) > 0.1:
+        errors.append("Expected proof must equal twice the expected ABV.")
     if expected.net_contents_ml not in AUTHORIZED_FILL_ML:
         errors.append("Net contents must use a current authorized standard of fill.")
+    if not expected.government_warning.strip():
+        errors.append("Expected government warning wording is required.")
     return errors

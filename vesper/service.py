@@ -25,13 +25,12 @@ def verify_label_text(text: str, expected: ExpectedLabel) -> VerificationReport:
         compare_name("Brand name", expected.brand_name, text),
         compare_name("Class/type", expected.class_type, text),
         compare_abv(expected.abv, extracted["abv"]),
-        compare_proof(extracted["abv"], extracted["proof"]),
+        compare_proof(expected.proof, extracted["abv"], extracted["proof"]),
         compare_net_contents(expected.net_contents_ml, extracted["net_contents_ml"]),
-        compare_warning(extracted),
+        compare_warning(expected.government_warning, text),
     )
     return VerificationReport(
         overall_status=_overall([check.status for check in checks]),
         checks=checks,
         extracted=extracted,
     )
-

@@ -4,7 +4,7 @@ import streamlit as st
 
 from vesper.models import ExpectedLabel, Status
 from vesper.ocr import OCRUnavailableError, run_local_ocr
-from vesper.rules import AUTHORIZED_FILL_ML, validate_expected
+from vesper.rules import AUTHORIZED_FILL_ML, GOVERNMENT_WARNING, validate_expected
 from vesper.service import verify_label_text
 
 
@@ -41,12 +41,30 @@ with st.sidebar:
     brand = st.text_input("Brand name", value="Vesper Reserve")
     class_type = st.text_input("Class/type", value="Vodka")
     abv = st.number_input("Alcohol by volume (%)", min_value=0.5, max_value=100.0, value=40.0, step=0.1)
+    proof_expected = st.checkbox("Proof expected on label", value=True)
+    proof = st.number_input(
+        "Expected proof", min_value=1.0, max_value=200.0, value=80.0,
+        step=0.1, disabled=not proof_expected
+    )
     fills = sorted(AUTHORIZED_FILL_ML, reverse=True)
     default_index = fills.index(750)
     net_ml = st.selectbox("Net contents", fills, index=default_index, format_func=lambda x: f"{x} mL")
+    expected_warning = st.text_area(
+        "Expected government warning",
+        value=GOVERNMENT_WARNING,
+        height=190,
+        help="Wording and capitalization are reviewed strictly.",
+    )
     st.caption("Current authorized standards of fill (TTB guidance updated May 21, 2026).")
 
-expected = ExpectedLabel(brand, class_type, float(abv), int(net_ml))
+expected = ExpectedLabel(
+    brand_name=brand,
+    class_type=class_type,
+    abv=float(abv),
+    proof=float(proof) if proof_expected else None,
+    net_contents_ml=int(net_ml),
+    government_warning=expected_warning,
+)
 errors = validate_expected(expected)
 
 left, right = st.columns([1, 1], gap="large")
@@ -127,4 +145,3 @@ st.caption(
     "Scope: distilled spirits only. Rules are based on 27 CFR parts 5 and 16 and "
     "official TTB distilled-spirits labeling guidance. Always complete human review."
 )
-

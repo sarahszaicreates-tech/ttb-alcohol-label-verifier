@@ -60,6 +60,12 @@ def run_local_ocr(data: bytes) -> OCRResult:
             # Correctly oriented prose yields more recognized characters while
             # confidence breaks ties between similarly complete readings.
             score = len("".join(text.split())) * max(confidence, 0.01)
+            lowered = text.casefold()
+            warning_start = lowered.find("government warning")
+            warning_one = lowered.find("(1)")
+            warning_two = lowered.find("(2)")
+            if 0 <= warning_start < warning_one < warning_two:
+                score += 25
             candidates.append((score, text, confidence))
     except OCRUnavailableError:
         raise

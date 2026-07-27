@@ -15,7 +15,9 @@ class ExpectedLabel:
     brand_name: str
     class_type: str
     abv: float
+    proof: float | None
     net_contents_ml: int
+    government_warning: str
 
 
 @dataclass(frozen=True)
@@ -47,4 +49,3 @@ class VerificationReport:
         "Decision-support result only. It is not a TTB approval, legal opinion, "
         "or substitute for human label review."
     )
-
