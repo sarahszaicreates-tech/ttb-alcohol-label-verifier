@@ -35,7 +35,8 @@ def _engine():
         from rapidocr_onnxruntime import RapidOCR
     except ImportError as exc:
         raise OCRUnavailableError(
-            "RapidOCR is not installed. Install requirements.txt and restart the app."
+            f"RapidOCR could not initialize: {exc}. "
+            "Install the runtime dependencies and restart the app."
         ) from exc
     return RapidOCR()
 
